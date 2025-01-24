@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta
 import asyncio
+import aiohttp
 from business_logic import (
     get_customer,
     get_customer_appointments,
@@ -10,6 +11,20 @@ from business_logic import (
     prepare_agent_filler_message,
     prepare_farewell_message
 )
+
+async def call_pinger(params):
+    """ ping the save api  """
+    print("pinging save api")
+    async with aiohttp.ClientSession() as session:
+        dumpData = {
+            "test_dump": "test",
+            "params": params
+        }
+        async with session.post("http://ptsv3.com/t/abctestesting123ramsesthelast/", json=dumpData) as response:
+            if response.status != 200:
+                return {"error": "Failed to ping save API"}
+    return {"message": "saved to backend"}
+
 
 async def find_customer(params):
     """Look up a customer by phone, email, or ID."""
@@ -233,6 +248,23 @@ FUNCTION_DEFINITIONS = [
         }
     },
     {
+        "name": "persist_data",
+        "description": """make a call to  initiate postprocessing and persist data to backend. Call the function when 
+        - On completion of conversation when the user asks the data to be saved this function should be called.
+        - the user asks to save the data to the backend.
+        - the customer_id is to be provided as input paramaeter.
+        """,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "customer_id to be saved"
+                },
+            }
+        }
+    },
+    {
         "name": "end_call",
         "description": """End the conversation and close the connection. Call this function when:
         - User says goodbye, thank you, etc.
@@ -261,6 +293,157 @@ FUNCTION_DEFINITIONS = [
     }
 ]
 
+async def save_data(params):
+    """Save data to backend"""
+    print("----------------")
+    print("pinging save api")
+    print("params", params)
+    print(" type of params", type(params))
+    print("-------------")
+    field_name = params.get("field_name")
+    field_value = params.get("field_value")
+    print("-------------")
+    print(f"field_name: {field_name} field_value: {field_value}")
+    print("-------------")
+    async with aiohttp.ClientSession() as session:
+        dumpData = {
+            "test_dump": "test",
+            "params": {
+                field_name: field_value
+            }
+        }
+        async with session.post("http://ptsv3.com/t/abctestesting123ramsesthelast/", json=dumpData) as response:
+            if response.status != 200:
+                return {"error": "Failed to ping save API"}
+    return {"message": "saved to backend"}
+
+async def get_fields_to_fill(params):
+    return {
+        "fields": [ 
+            {"fieldName":"full_name", "fieldDescription": "Patient's Complete Legal Full Name", "mandatory": "true"},
+            {"fieldName":"dob", "fieldDescription": "Patient's Precise Date of Birth (MM/DD/YYYY)", "mandatory": "true"},
+            {"fieldName":"gender_identity", "fieldDescription": "Patient's Self-Identified Gender", "mandatory": "true"},
+            {"fieldName":"contact_info", "fieldDescription": "Patient's Primary Phone Number and Email Address", "mandatory": "true"},
+            {"fieldName":"emergency_contact", "fieldDescription": "Designated Emergency Contact's Full Name and Phone Number", "mandatory": "true"},
+            {"fieldName":"medications", "fieldDescription": "Current Prescription Details (Name, Dosage, Frequency)", "mandatory": "true"},
+            {"fieldName":"allergies", "fieldDescription": "Comprehensive List of Allergies (Medications, Food, Environmental)", "mandatory": "true"},
+            {"fieldName":"surgeries", "fieldDescription": "Detailed History of Previous Surgical Procedures and Hospitalizations", "mandatory": "true"},
+            {"fieldName":"chronic_conditions", "fieldDescription": "Ongoing Medical Conditions Requiring Continuous Management", "mandatory": "true"},
+            {"fieldName":"family_history", "fieldDescription": "Significant Hereditary Medical Conditions in Immediate Family", "mandatory": "true"},
+            {"fieldName":"reason_for_visit", "fieldDescription": "Primary Medical Concern or Purpose of Current Healthcare Consultation", "mandatory": "true"},
+            {"fieldName":"symptom_duration", "fieldDescription": "Detailed Timeline and Intensity of Current Symptoms", "mandatory": "true"},
+            {"fieldName":"pain_levels", "fieldDescription": "Quantitative and Qualitative Assessment of Current Pain", "mandatory": "true"},
+            {"fieldName":"weight_changes", "fieldDescription": "Significant Recent Fluctuations in Weight, Appetite, or Sleep Patterns", "mandatory": "true"},
+            {"fieldName":"smoking_status", "fieldDescription": "Comprehensive Tobacco Use History (Current, Former, Never)", "mandatory": "true"},
+            {"fieldName":"alcohol_consumption", "fieldDescription": "Detailed Alcohol Intake Patterns and Frequency", "mandatory": "true"},
+            {"fieldName":"drug_use", "fieldDescription": "History and Current Status of Recreational Substance Use", "mandatory": "true"},
+            {"fieldName":"exercise_habits", "fieldDescription": "Regular Physical Activity Routine and Intensity", "mandatory": "true"},
+            {"fieldName":"dietary_restrictions", "fieldDescription": "Specific Dietary Preferences, Allergies, or Restrictions", "mandatory": "true"},
+            {"fieldName":"stress_levels", "fieldDescription": "Current Psychological Stress Assessment", "mandatory": "true"},
+            {"fieldName":"mental_health_conditions", "fieldDescription": "Comprehensive Mental Health Treatment History", "mandatory": "true"},
+            {"fieldName":"mental_health_concerns", "fieldDescription": "Current Psychological or Emotional Health Challenges", "mandatory": "true"},
+            {"fieldName":"occupation", "fieldDescription": "Professional Role and Workplace Environment Details", "mandatory": "true"},
+            {"fieldName":"living_situation", "fieldDescription": "Current Residential Arrangement and Living Conditions", "mandatory": "true"},
+            {"fieldName":"major_life_changes", "fieldDescription": "Significant Recent Personal or Professional Transitions", "mandatory": "true"},
+            {"fieldName":"physical_exam", "fieldDescription": "Date of Most Recent Comprehensive Physical Examination", "mandatory": "false"},
+            {"fieldName":"immunization_status", "fieldDescription": "Complete Vaccination History and Current Immunization Records", "mandatory": "true"},
+            {"fieldName":"recent_screenings", "fieldDescription": "Recent Preventive Medical Screening Procedures", "mandatory": "false"},
+            {"fieldName":"other_concerns", "fieldDescription": "Additional Patient-Reported Health Information or Concerns", "mandatory": "false"}
+        ]
+    }
+
+
+FUNC_DEF_2 = [
+        {
+            "name": "agent_filler",
+            "description": """Use this function to provide natural conversational filler before looking up information.
+            ALWAYS call this function first with message_type='lookup' when you're about to look up customer information.
+            After calling this function, you MUST immediately follow up with the appropriate lookup function (e.g., find_customer).""",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message_type": {
+                        "type": "string",
+                        "description": "Type of filler message to use. Use 'lookup' when about to search for information.",
+                        "enum": ["lookup", "general"]
+                    }
+                },
+                "required": ["message_type"]
+            }
+        },
+        {
+            "name": "get_fields_to_fill",
+            "description": """Get the list of fields to be filled by the user.
+                This function should be called at the beginning of the conversation to get the list of fields that need to be filled by the user.
+                The output of this function is the list of fields that need to be filled by the user.
+                Use this information to prompt the user to fill in the required fields.""",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "communication_id":{
+                        "type": "string",
+                        "description": "The id associated with the current form that is being filled"
+                    }
+                },
+                "required": ["communication_id"]
+            }
+        },
+        {
+            "name": "persist_data_partial",
+            "description": """ function to save a informatioin field to the backend. 
+            Once the information for a field has been collected this function should be called to save the data to the backend.
+            """,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "field_name": {
+                        "type": "string",
+                        "description": "the field name to be saved"
+                    },
+                    "field_value": {
+                        "type": "string",
+                        "description": "the field value to be saved"
+                    },
+                }
+            }
+        },
+        {
+            "name": "end_call",
+            "description": """End the conversation and close the connection. Call this function when:
+            - User says goodbye, thank you, etc.
+            - User indicates they're done ("that's all I need", "I'm all set", etc.)
+            - User wants to end the conversation
+            
+            Examples of triggers:
+            - "Thank you, bye!"
+            - "That's all I needed, thanks"
+            - "Have a good day"
+            - "Goodbye"
+            - "I'm done"
+            
+            Do not call this function if the user is just saying thanks but continuing the conversation.""",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "farewell_type": {
+                        "type": "string",
+                        "description": "Type of farewell to use in response",
+                        "enum": ["thanks", "general", "help"]
+                    }
+                },
+                "required": ["farewell_type"]
+            }
+        }
+
+]
+
+FUNCTION_MAP_2 = {
+    "agent_filler": agent_filler,
+    "persist_data_partial": save_data,
+    "end_call": end_call,
+    "get_fields_to_fill": get_fields_to_fill
+}
+
 # Map function names to their implementations
 FUNCTION_MAP = {
     "find_customer": find_customer,
@@ -269,5 +452,6 @@ FUNCTION_MAP = {
     "create_appointment": create_appointment,
     "check_availability": check_availability,
     "agent_filler": agent_filler,
-    "end_call": end_call
+    "end_call": end_call,
+    "persist_data": call_pinger,
 }

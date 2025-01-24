@@ -9,7 +9,7 @@ import queue
 import sys
 import time
 from datetime import datetime
-from functions import FUNCTION_DEFINITIONS, FUNCTION_MAP
+from functions import FUNC_DEF_2, FUNCTION_DEFINITIONS, FUNCTION_MAP, FUNCTION_MAP_2
 import logging
 
 class ColorFormatter(logging.Formatter):
@@ -157,6 +157,53 @@ Correct pattern to follow:
 
 Remember: ANY phrase indicating you're about to look something up MUST be done through the agent_filler function, never through direct response text.
 """
+
+
+fields = {
+
+}
+
+
+MARIANA_PROMPT_TEMPLATE = """
+    You are Maria from MarianaAi, a virtual medical assisstant that is tasked with patient information gathering.
+    Your role is to help patients in filling in the required information for their upcoming appointment eith the doctor.
+    You are calling a patient to gather information for their upcoming appointment.
+
+    CURRENT DATE AND TIME CONTEXT:
+    You are calling {patient_name} to gather information for their upcoming appointment. The appointment is scheduled for {appointment_date} at {appointment_time}.
+    The appointment is with Dr. {doctor_name} at {clinic_name}.
+    Today is {current_date}. Use this as context when discussing appointments and orders. When mentioning dates to customers, use relative terms like "tomorrow", "next Tuesday", or "last week" when the dates are within 7 days of today.
+    Communcation id is {communication_id}
+
+    PERSONALITY & TONE:
+    - Be warm, professional, and conversational
+    - Use natural, flowing speech (avoid bullet points or listing)
+    - Show empathy and patience
+
+    You are to gather information from the user.
+    Use get_fields_to_fill function to get the list of fields that need to be filled. Provide the communication id to the function.
+    The function will return a list of field details. The field detail will have the field name, field description and if the field is mandatory or not.
+
+    If a field is not mandatory then you can mention it and move ahead. For a mandatory field, you have to ensure that the user provides the information.
+    The user can choose to come back to a field later if they are not sure about the information.
+    
+    Ask for confirmation after each field is filled.        
+    Once the user confirms the information, you should save the data to backend by calling the persist_data_partial function. Then move on to the next field.
+    Before ending the converasation make sure all the mandatory fields are filled.
+    
+    At the end of the conversation do NOT repeat all the fields confirmation if the user has already confirmed them once.
+
+    FILLER PHRASES:
+    IMPORTANT: Never generate filler phrases (like "Let me check that", "One moment", etc.) directly in your responses. 
+    Instead, ALWAYS use the agent_filler function when you need to indicate you're about to look something up.
+
+    Examples of what NOT to do:
+    - Responding with "Let me look that up for you..." without a function call
+    - Saying "One moment please" or "Just a moment" without a function call
+    - Adding filler phrases before or after function calls
+
+"""
+
 VOICE = "aura-asteria-en"
 
 USER_AUDIO_SAMPLE_RATE = 16000
@@ -184,14 +231,16 @@ SETTINGS = {
         "think": {
             "provider": {"type": "open_ai"},
             "model": "gpt-4o-mini",
-            "instructions": PROMPT_TEMPLATE,
-            "functions": FUNCTION_DEFINITIONS,
+            "instructions": MARIANA_PROMPT_TEMPLATE,
+            "functions": FUNC_DEF_2,
         },
         "speak": {"model": VOICE},
     },
     "context": {
         "messages": [
-            {"role": "assistant", "content": "Hello! I'm Sarah from TechStyle customer service. How can I help you today?"}
+            # {"role": "assistant", "content": "Hello! I'm Sarah from TechStyle customer service. How can I help you today?"}
+            {"role": "assistant", "content": "Hello! I'm Maria from Mariana AI. I will be helping you with information gathering for your upcoming appointment. Are we good to go?"}    
+
         ],
         "replay": True
     }
@@ -213,7 +262,8 @@ async def run():
 
     # Format the prompt with the current date
     current_date = datetime.now().strftime("%A, %B %d, %Y")
-    formatted_prompt = PROMPT_TEMPLATE.format(current_date=current_date)
+    # formatted_prompt = PROMPT_TEMPLATE.format(current_date=current_date)
+    formatted_prompt = MARIANA_PROMPT_TEMPLATE.format(current_date=current_date, patient_name="John Doe", appointment_date=" 25th February 2025", appointment_time="10:00 AM", doctor_name="Smith", clinic_name="XYZ Clinic", communication_id="comm_123456")
 
     # Update the settings with the formatted prompt
     settings = SETTINGS.copy()
@@ -302,12 +352,12 @@ async def run():
                                 function_call_id = message_json.get("function_call_id")
                                 parameters = message_json.get("input", {})
                                 
-                                logger.info(f"Function call received: {function_name}")
-                                logger.info(f"Parameters: {parameters}")
+                                logger.info(f">> Function call received: {function_name}")
+                                logger.info(f">> Parameters: {parameters}")
                                 
                                 start_time = time.time()
                                 try:
-                                    func = FUNCTION_MAP.get(function_name)
+                                    func = FUNCTION_MAP_2.get(function_name)
                                     if not func:
                                         raise ValueError(f"Function {function_name} not found")
                                     
